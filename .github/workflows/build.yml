@@ -2,13 +2,16 @@ name: Warp Desk Build Automation
 
 on:
   push:
-    branches: [ "main", "master" ] # Berjalan otomatis saat Anda melakukan push
-  workflow_dispatch: # Memungkinkan Anda menjalankan build secara manual
+    tags:
+      - 'v*' # Berjalan otomatis jika Anda membuat tag versi (misal v1.0.1)
+  workflow_dispatch: # Tetap bisa dijalankan manual
 
 jobs:
   build-windows:
-    name: Build Warp Desk for Windows
+    name: Build & Release Warp Desk
     runs-on: windows-latest
+    permissions:
+      contents: write # PENTING: Izin untuk membuat Release
 
     steps:
       - name: Checkout Repository
@@ -16,44 +19,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 1. Pasang Dependensi Rust (Mesin Utama)
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      # 2. Pasang Dependensi Flutter (Antarmuka/UI)
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      # 3. Konfigurasi vcpkg (Pustaka C++)
-      # vcpkg sudah terpasang di Windows runner, kita hanya perlu mengintegrasikannya.
       - name: Setup vcpkg
         run: |
           vcpkg integrate install
           echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
 
-      # 4. Jalankan Skrip Patching (Injeksi Branding Warp Desk)
-      # Menggunakan shell 'bash' agar skrip .sh Anda bisa berjalan di Windows
       - name: Execute Warp-Patcher Script
         shell: bash
         run: |
           chmod +x ./patch_warpdesk.sh
           ./patch_warpdesk.sh
 
-      # 5. Proses Kompilasi (Membangun Aplikasi)
       - name: Build Windows Release
         run: |
           flutter pub get
           flutter build windows --release
 
-      # 6. Simpan Hasil Build sebagai Artifact
-      - name: Upload Warp Desk Executable
-        uses: actions/upload-artifact@v4
+      # Langkah baru: Mengemas hasil build menjadi file ZIP agar rapi
+      - name: Package for Release
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/runner/Release/* -DestinationPath WarpDesk-Windows.zip
+
+      # Langkah baru: Membuat GitHub Release otomatis
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: WarpDesk-Windows-Package
-          path: build/windows/runner/Release/
-          if-no-files-found: error
+          files: WarpDesk-Windows.zip
+          name: Warp Desk ${{ github.ref_name }}
+          body: |
+            ## Release Resmi Warp Desk - PT CPL
+            - Berbasis infrastruktur: relay.cplcore.cloud
+            - Keamanan: Enkripsi End-to-End dengan Public Key tertanam.
+            - Status Server: Ready
+          draft: false
+          prerelease: false

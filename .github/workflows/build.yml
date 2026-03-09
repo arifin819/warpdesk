@@ -1,0 +1,59 @@
+name: Warp Desk Build Automation
+
+on:
+  push:
+    branches: [ "main", "master" ] # Berjalan otomatis saat Anda melakukan push
+  workflow_dispatch: # Memungkinkan Anda menjalankan build secara manual
+
+jobs:
+  build-windows:
+    name: Build Warp Desk for Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 1. Pasang Dependensi Rust (Mesin Utama)
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # 2. Pasang Dependensi Flutter (Antarmuka/UI)
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 3. Konfigurasi vcpkg (Pustaka C++)
+      # vcpkg sudah terpasang di Windows runner, kita hanya perlu mengintegrasikannya.
+      - name: Setup vcpkg
+        run: |
+          vcpkg integrate install
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      # 4. Jalankan Skrip Patching (Injeksi Branding Warp Desk)
+      # Menggunakan shell 'bash' agar skrip .sh Anda bisa berjalan di Windows
+      - name: Execute Warp-Patcher Script
+        shell: bash
+        run: |
+          chmod +x ./patch_warpdesk.sh
+          ./patch_warpdesk.sh
+
+      # 5. Proses Kompilasi (Membangun Aplikasi)
+      - name: Build Windows Release
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      # 6. Simpan Hasil Build sebagai Artifact
+      - name: Upload Warp Desk Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarpDesk-Windows-Package
+          path: build/windows/runner/Release/
+          if-no-files-found: error
